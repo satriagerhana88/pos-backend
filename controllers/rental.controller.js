@@ -140,4 +140,123 @@ const createRental = async (req, res) => {
   }
 };
 
-module.exports = { createRental };
+// Return rental
+const returnRental = async (req, res) => {
+  const { rentalId } = req.params;
+  const { items } = req.body; // [{ branch_product_id, qty, is_damaged }]
+
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+
+    // 1. Cek rental status
+    const rentalCheck = await client.query(
+      "SELECT * FROM rentals WHERE id = $1 AND status = 'ACTIVE'",
+      [rentalId]
+    );
+    if (rentalCheck.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Rental not active or not found" });
+    }
+
+    // 2. Loop tiap item untuk update stok dan rental_items
+    for (let item of items) {
+      const { branch_product_id, qty, is_damaged } = item;
+
+      // Update stock_available di branch_products
+      await client.query(
+        "UPDATE branch_products SET stock_available = stock_available + $1 WHERE id = $2",
+        [qty, branch_product_id]
+      );
+
+      // Update rental_items (returned_quantity dan is_damaged)
+      await client.query(
+        `UPDATE rental_items
+         SET returned_quantity = COALESCE(returned_quantity,0) + $1,
+             is_damaged = $2
+         WHERE rental_id = $3 AND branch_product_id = $4`,
+        [qty, is_damaged, rentalId, branch_product_id]
+      );
+
+      // Optional: hitung denda jika rusak
+      if (is_damaged) {
+        await client.query(
+          `UPDATE rentals
+           SET total_denda = COALESCE(total_denda,0) + $1
+           WHERE id = $2`,
+          [100000, rentalId] // contoh denda per item rusak
+        );
+      }
+    }
+
+    // 3. Cek apakah semua item sudah dikembalikan
+    const checkAllReturned = await client.query(
+      `SELECT COUNT(*) AS not_returned
+       FROM rental_items
+       WHERE rental_id = $1 AND (returned_quantity IS NULL OR returned_quantity < qty)`,
+      [rentalId]
+    );
+
+    if (parseInt(checkAllReturned.rows[0].not_returned) === 0) {
+      // Semua item kembali → update rental status
+      await client.query(
+        "UPDATE rentals SET status = 'RETURNED' WHERE id = $1",
+        [rentalId]
+      );
+    }
+
+    await client.query("COMMIT");
+    res.json({ message: "Rental returned successfully" });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+};
+
+// GET rental detail by ID
+const getRentalById = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Ambil rental utama
+    const rentalResult = await db.query(
+      `SELECT r.id, r.invoice_number, r.branch_id, r.customer_name, r.customer_address,
+              r.customer_phone, r.customer_id_type, r.customer_id_number, r.customer_note,
+              r.status, r.discount_type, r.discount_value, r.total_payment, r.total_denda,
+              r.rental_date, r.return_date, r.created_at, r.updated_at,
+              b.name AS branch_name
+       FROM rentals r
+       JOIN branches b ON r.branch_id = b.id
+       WHERE r.id = $1`,
+      [id]
+    );
+
+    if (rentalResult.rows.length === 0) {
+      return res.status(404).json({ error: "Rental not found" });
+    }
+
+    const rental = rentalResult.rows[0];
+
+    // Ambil item rental
+    const itemsResult = await db.query(
+      `SELECT ri.id AS rental_item_id, ri.branch_product_id, ri.qty, ri.returned_quantity,
+              ri.is_damaged, ri.price_per_item,
+              bp.branch_price, p.name AS product_name
+       FROM rental_items ri
+       JOIN branch_products bp ON ri.branch_product_id = bp.id
+       JOIN products p ON bp.product_id = p.id
+       WHERE ri.rental_id = $1`,
+      [id]
+    );
+
+    rental.items = itemsResult.rows;
+
+    res.json(rental);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+module.exports = { createRental, returnRental, getRentalById };

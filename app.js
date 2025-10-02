@@ -14,6 +14,7 @@ const branchProductRoutes = require("./routes/branchProduct.routes");
 const stockAlertRoutes = require("./routes/stockAlert.routes");
 const branchStockRoutes = require("./routes/branchStock.routes");
 const rentalRoutes = require("./routes/rental.routes");
+const stockOpnameRoutes = require("./routes/stockOpname.routes");
 const path = require("path");
 
 const app = express();
@@ -33,6 +34,7 @@ app.use("/api/branch-products", branchProductRoutes);
 app.use("/api/stock-alerts", stockAlertRoutes);
 app.use("/api/branch-stock", branchStockRoutes);
 app.use("/api/rentals", rentalRoutes);
+app.use("/api/stock-opnames", stockOpnameRoutes);
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
