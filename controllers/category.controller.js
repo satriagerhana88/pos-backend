@@ -1,5 +1,19 @@
 const db = require("../config/db");
 
+// tambah kategori baru
+const createCategory = async (req, res) => {
+  try {
+    const { code, name } = req.body;
+    const result = await db.query(
+      "INSERT INTO categories (code, name) VALUES ($1, $2) RETURNING *",
+      [code, name]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 // ambil semua kategori
 const getCategories = async (req, res) => {
   try {
@@ -18,20 +32,6 @@ const getCategoryById = async (req, res) => {
       return res.status(404).json({ message: "Category not found" });
     }
     res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
-
-// tambah kategori baru
-const createCategory = async (req, res) => {
-  try {
-    const { code, name } = req.body;
-    const result = await db.query(
-      "INSERT INTO categories (code, name) VALUES ($1, $2) RETURNING *",
-      [code, name]
-    );
-    res.status(201).json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
