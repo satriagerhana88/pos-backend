@@ -1,6 +1,15 @@
 const db = require("../config/db");
+const fs = require("fs");
+const path = require("path");
 
-// ambil semua produk (join kategori biar lebih informatif)
+// ===== Helper: Generate Product Code =====
+const generateProductCode = async () => {
+  const result = await db.query(`SELECT MAX(id) as max_id FROM products`);
+  const maxId = result.rows[0].max_id || 0;
+  return `PRD-${String(maxId + 1).padStart(4, '0')}`;
+};
+
+// ===== Get All Products =====
 const getProducts = async (req, res) => {
   try {
     const result = await db.query(`
@@ -15,7 +24,7 @@ const getProducts = async (req, res) => {
   }
 };
 
-// ambil produk by ID
+// ===== Get Product By ID =====
 const getProductById = async (req, res) => {
   try {
     const result = await db.query(
@@ -25,16 +34,14 @@ const getProductById = async (req, res) => {
        WHERE p.id = $1`,
       [req.params.id]
     );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Product not found" });
-    }
+    if (result.rows.length === 0) return res.status(404).json({ message: "Product not found" });
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
-// ambil produk berdasarkan kategori_id
+// ===== Get Products By Category =====
 const getProductsByCategory = async (req, res) => {
   try {
     const { category_id } = req.params;
@@ -46,28 +53,44 @@ const getProductsByCategory = async (req, res) => {
        ORDER BY p.id ASC`,
       [category_id]
     );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "No products found in this category" });
-    }
-
+    if (result.rows.length === 0) return res.status(404).json({ message: "No products found in this category" });
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
+// ===== Search Products =====
+const searchProducts = async (req, res) => {
+  try {
+    const { keyword } = req.query;
+    if (!keyword) return res.status(400).json({ message: "Keyword is required" });
 
-// tambah produk baru
+    const result = await db.query(
+      `SELECT p.*, c.name as category_name 
+       FROM products p
+       JOIN categories c ON p.category_id = c.id
+       WHERE LOWER(p.name) LIKE LOWER($1)
+       ORDER BY p.id ASC`,
+      [`%${keyword}%`]
+    );
+
+    if (result.rows.length === 0) return res.status(404).json({ message: "No products found" });
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ===== Create Product =====
 const createProduct = async (req, res) => {
   try {
-    const { product_code, name, description, rental_price, category_id, notes } = req.body;
+    const { name, description, rental_price, category_id, notes } = req.body;
 
-    // kalau ada file, simpan path-nya
+    const product_code = await generateProductCode(); // generate otomatis
+
     let image_url = null;
-    if (req.file) {
-      image_url = `/uploads/${req.file.filename}`;
-    }
+    if (req.file) image_url = `/uploads/${req.file.filename}`;
 
     const result = await db.query(
       `INSERT INTO products (product_code, name, description, rental_price, image_url, category_id, notes) 
@@ -81,39 +104,29 @@ const createProduct = async (req, res) => {
   }
 };
 
-// update produk
-const fs = require("fs");
-const path = require("path");
+// ===== Update Product =====
 const updateProduct = async (req, res) => {
   try {
-    const { product_code, name, description, rental_price, category_id, notes } = req.body;
+    const { name, description, rental_price, category_id, notes } = req.body;
 
-    // cek dulu product lama
     const oldProduct = await db.query("SELECT * FROM products WHERE id=$1", [req.params.id]);
-    if (oldProduct.rows.length === 0) {
-      return res.status(404).json({ message: "Product not found" });
-    }
+    if (oldProduct.rows.length === 0) return res.status(404).json({ message: "Product not found" });
 
     let image_url = oldProduct.rows[0].image_url;
 
-    // kalau ada file baru
     if (req.file) {
-      // hapus file lama (kalau ada dan bukan null)
       if (image_url) {
         const oldPath = path.join(__dirname, "..", image_url);
-        if (fs.existsSync(oldPath)) {
-          fs.unlinkSync(oldPath); // hapus file lama
-        }
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
       }
-      // set image baru
       image_url = `/uploads/${req.file.filename}`;
     }
 
     const result = await db.query(
       `UPDATE products 
-       SET product_code=$1, name=$2, description=$3, rental_price=$4, image_url=$5, category_id=$6, notes=$7
-       WHERE id=$8 RETURNING *`,
-      [product_code, name, description, rental_price, image_url, category_id, notes, req.params.id]
+       SET name=$1, description=$2, rental_price=$3, image_url=$4, category_id=$5, notes=$6
+       WHERE id=$7 RETURNING *`,
+      [name, description, rental_price, image_url, category_id, notes, req.params.id]
     );
 
     res.json(result.rows[0]);
@@ -122,27 +135,19 @@ const updateProduct = async (req, res) => {
   }
 };
 
-
-// hapus produk
+// ===== Delete Product =====
 const deleteProduct = async (req, res) => {
   try {
-    // cek produk lama
     const oldProduct = await db.query("SELECT * FROM products WHERE id=$1", [req.params.id]);
-    if (oldProduct.rows.length === 0) {
-      return res.status(404).json({ message: "Product not found" });
-    }
+    if (oldProduct.rows.length === 0) return res.status(404).json({ message: "Product not found" });
 
     const image_url = oldProduct.rows[0].image_url;
 
-    // hapus dari database
     await db.query("DELETE FROM products WHERE id=$1", [req.params.id]);
 
-    // hapus file gambar kalau ada
     if (image_url) {
       const oldPath = path.join(__dirname, "..", image_url);
-      if (fs.existsSync(oldPath)) {
-        fs.unlinkSync(oldPath);
-      }
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
     }
 
     res.json({ message: "Product deleted successfully" });
@@ -150,37 +155,6 @@ const deleteProduct = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
-
-// cari produk berdasarkan nama (case-insensitive)
-const searchProducts = async (req, res) => {
-  try {
-    const { keyword } = req.query;
-
-    if (!keyword) {
-      return res.status(400).json({ message: "Keyword is required" });
-    }
-
-    const result = await db.query(
-      `SELECT p.*, c.name as category_name 
-       FROM products p
-       JOIN categories c ON p.category_id = c.id
-       WHERE LOWER(p.name) LIKE LOWER($1)
-       ORDER BY p.id ASC`,
-      [`%${keyword}%`]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "No products found" });
-    }
-
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
-
-
 
 module.exports = {
   getProducts,
