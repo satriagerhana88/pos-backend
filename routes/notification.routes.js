@@ -1,10 +1,27 @@
-// routes/notifications.js
+// // routes/notifications.js
+// const express = require("express");
+// const { getNotifications, getUnreadNotifications, markAsRead } = require("../controllers/notificationController");
+
+// const router = express.Router();
+
+// // // GET /api/notifications
+// router.get("/", getNotifications);
+
+// module.exports = router;
+
 const express = require("express");
-const { getNotifications } = require("../controllers/notificationController");
+const {
+  getNotifications,
+  getUnreadNotifications,
+  markAsRead,
+} = require("../controllers/notificationController");
 
 const router = express.Router();
 
-// GET /api/notifications
+// === ROUTES UNTUK NOTIFIKASI ===
 router.get("/", getNotifications);
+router.get("/unread", getUnreadNotifications);
+router.put("/:id/read", markAsRead);
 
 module.exports = router;
+
