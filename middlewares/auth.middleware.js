@@ -52,4 +52,31 @@ const isAdminOrSuperAdmin = (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, permit, verifyToken, isSuperAdmin, isAdminOrSuperAdmin };
+const verifyTokenWithBranch = async (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+
+  if (!token) return res.status(401).json({ error: "No token provided" });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // decoded = { id, role, branch_id }
+
+    // Ambil branch_name dari DB jika ada branch_id
+    if (decoded.branch_id) {
+      const branchRes = await pool.query(
+        "SELECT name FROM branches WHERE id = $1",
+        [decoded.branch_id]
+      );
+      decoded.branch_name = branchRes.rows[0]?.name || null;
+    }
+
+    req.user = decoded;
+    next();
+  } catch (err) {
+    return res.status(403).json({ error: "Invalid or expired token" });
+  }
+};
+
+
+module.exports = { authenticate, permit, verifyToken, isSuperAdmin, isAdminOrSuperAdmin, verifyTokenWithBranch };

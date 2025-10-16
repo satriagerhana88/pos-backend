@@ -26,7 +26,13 @@ exports.login = async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const result = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
+    const result = await pool.query(
+      `SELECT u.*, b.name AS branch_name 
+       FROM users u 
+       LEFT JOIN branches b ON u.branch_id = b.id
+       WHERE u.email = $1`, 
+      [email]
+    );
 
     if (result.rows.length === 0) {
       return res.status(401).json({ error: "Invalid credentials" });
@@ -39,10 +45,10 @@ exports.login = async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    // 🔑 Buat JWT
+    // 🔑 Buat JWT, sertakan branch_id
     const token = jwt.sign(
-      { id: user.id, role: user.role },
-      process.env.JWT_SECRET,                // << ini harus ada
+      { id: user.id, role: user.role, branch_id: user.branch_id },
+      process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || "1d" }
     );
 
@@ -53,6 +59,8 @@ exports.login = async (req, res) => {
         id: user.id,
         name: user.name,
         role: user.role,
+        branch_id: user.branch_id,
+        branch_name: user.branch_name, // tambahkan
       },
     });
   } catch (err) {
